@@ -47,7 +47,7 @@ if prompt := st.chat_input("Escribe aquí..."):
             mensajes_api = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.messages
             
             stream = client.chat.completions.create(
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 messages=mensajes_api,
                 stream=True,
             )
