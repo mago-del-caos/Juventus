@@ -23,8 +23,6 @@ css_psique = """
     .stDeployButton {display: none;}
     [data-testid="stToolbar"] {display: none;}
     [data-testid="stStatusWidget"] {display: none;}
-    /* Estilo para el botón de audio */
-    .stAudioRecorder {justify-content: center;}
 </style>
 """
 st.markdown(css_psique, unsafe_allow_html=True)
@@ -35,10 +33,10 @@ SYSTEM_PROMPT = """Eres Psique IJEM, un asistente de inteligencia artificial esp
 Tu objetivo principal es ofrecer contención emocional, escucha activa y orientación inicial a estudiantes que atraviesen momentos de crisis, estrés, ansiedad o problemas personales.
 
 **REGLAS FUNDAMENTALES:**
-1.  **Advertencia Inicial Obligatoria:** En tu primer mensaje de bienvenida (y si el usuario lo requiere), debes aclarar con total transparencia: "Hola, soy Psique IJEM. Es importante que sepas que soy un sistema de apoyo emocional y **no reemplazo a un psicólogo profesional ni a una evaluación clínica**. Mis orientaciones no tienen validez profesional médica. Si sientes que tu situación es grave o una emergencia, por favor acude con un especialista o adulto de confianza."
+1.  **Advertencia Inicial Obligatoria:** En tu primer mensaje de bienvenida, debes aclarar con total transparencia: "Hola, soy Psique IJEM. Es importante que sepas que soy un sistema de apoyo emocional y **no reemplazo a un psicólogo profesional ni a una evaluación clínica**. Mis orientaciones no tienen validez profesional médica. Si sientes que tu situación es grave o una emergencia, por favor acude con un especialista o adulto de confianza."
 2.  **Tono:** Profesional pero profundamente empático, cálido y muy humano. Usa un lenguaje accesible para adolescentes.
 3.  **Empatía:** Valida siempre las emociones del usuario antes de dar consejos. Nunca juzgues ni minimices lo que sienten.
-4.  **Seguridad:** Si detectas indicadores de riesgo inminente (autolesiones, ideación suicida), insta amable pero firmemente a buscar ayuda profesional o contactar a un familiar de inmediato.
+4.  **Seguridad:** Si detectas indicadores de riesgo inminente (autolesiones, ideación suicida), insta amable pero firmemente a buscar ayuda profesional inmediata.
 
 Responde de forma concisa pero cálida. Eres un compañero de apoyo en el Instituto Juventud (IJEM).
 """
@@ -60,17 +58,24 @@ except Exception:
 # --- FUNCIONES DE AUDIO WEB ---
 
 def speak_js(text):
-    """Usa JavaScript para que el navegador hable (Text-to-Speech)."""
+    """Inyecta JavaScript para hablar. Se ejecuta al cargar el componente."""
     clean_text = text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
+    # Usamos un div contenedor para asegurar que el script se ejecute
     js_code = f"""
+    <div id="audio-trigger"></div>
     <script>
-        if ('speechSynthesis' in window) {{
-            var utterance = new SpeechSynthesisUtterance("{clean_text}");
-            utterance.lang = 'es-MX';
-            utterance.rate = 1.0;
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utterance);
+        var text = "{clean_text}";
+        function hablar() {{
+            if ('speechSynthesis' in window) {{
+                var utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'es-MX';
+                utterance.rate = 1.0;
+                window.speechSynthesis.cancel(); // Detiene audios previos
+                window.speechSynthesis.speak(utterance);
+            }}
         }}
+        // Esperamos un instante a que el navegador esté listo
+        setTimeout(hablar, 100);
     </script>
     """
     components.html(js_code, height=0)
@@ -118,19 +123,15 @@ def procesar_respuesta(user_input):
             )
             response = st.write_stream(stream)
             st.session_state.messages.append({"role": "assistant", "content": response})
-            
-            # CAMBIO 1: Agregamos el botón para escuchar manualmente
-            # Usamos una key única para el botón basada en el contenido para evitar errores de renderizado
-            if st.button("🔊 Escuchar respuesta", key=f"btn_listen_{len(st.session_state.messages)}"):
-                speak_js(response)
-                
+            # Guardamos la respuesta en session_state para que el botón exterior pueda accederla
+            st.session_state.last_response = response
         except Exception as e:
             st.error(f"⚠️ Error: {str(e)}")
 
 # --- INTERFAZ DE USUARIO ---
 
+# 1. Entrada de Voz (Grabación)
 st.markdown("#### 🎤 Habla con Psique")
-# CAMBIO 2: Interfaz enfocada en apoyo
 audio_bytes = audio_recorder(energy_threshold=0.5, pause_threshold=1.0, icon_size="2x")
 
 if audio_bytes:
@@ -139,7 +140,17 @@ if audio_bytes:
         st.success(f"📝 Dijiste: {texto_voz}")
         procesar_respuesta(texto_voz)
 
-# Entrada de Texto
+# 2. Entrada de Texto
 st.markdown("---")
 if prompt := st.chat_input("Escribe cómo te sientes..."):
     procesar_respuesta(prompt)
+
+# 3. BOTÓN DE ESCUCHA (FUERA DEL FLUJO DE GENERERACIÓN)
+# Este bloque se ejecuta siempre que haya una respuesta previa, permitiendo reproducirla sin regenerar.
+if "last_response" in st.session_state:
+    # Creamos un contenedor para el botón al final de la pantalla
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🔊 Escuchar última respuesta", use_container_width=True):
+            speak_js(st.session_state.last_response)
